@@ -10,7 +10,9 @@ from src.ingestion.quality_checks import validate_event_batch
 from src.processing.analytics_pipeline import (
     export_analytics_to_clickhouse,
 )
-from src.processing.pipeline_monitor import monitor_pipeline
+from src.processing.pipeline_observability import (
+    run_monitored_pipeline,
+)
 
 
 SAMPLE_FILE = "data/sample/events.json"
