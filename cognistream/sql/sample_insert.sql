@@ -1,0 +1,55 @@
+-- ==========================================
+-- CogniStream Sample Developer Events
+-- ==========================================
+
+INSERT INTO cognistream.developer_events
+(
+    event_id,
+    developer_id,
+    source,
+    event_type,
+    event_timestamp,
+    metadata
+)
+VALUES
+
+(
+    'EVT001',
+    'DEV001',
+    'github',
+    'commit',
+    '2026-11-04 09:00:00.000',
+    '{"repository":"cognistream","branch":"main"}'
+),
+
+(
+    'EVT002',
+    'DEV001',
+    'slack',
+    'message',
+    '2026-11-04 09:15:00.000',
+    '{"channel":"development"}'
+),
+
+(
+    'EVT003',
+    'DEV001',
+    'activitywatch',
+    'coding_activity',
+    '2026-11-04 09:30:00.000',
+    '{"application":"VS Code"}'
+),
+
+(
+    'EVT004',
+    'DEV002',
+    'jira',
+    'issue_update',
+    '2026-11-04 10:00:00.000',
+    '{"issue_id":"COG-101"}'
+);
+
+-- Verify inserted records
+SELECT *
+FROM cognistream.developer_events
+ORDER BY event_timestamp;
