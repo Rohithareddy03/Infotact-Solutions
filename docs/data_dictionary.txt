@@ -1,0 +1,28 @@
+## Developer Activity Event Structure
+
+| Field | Type | Description |
+|---|---|---|
+| event_id | String | Unique event ID |
+| developer_id | String | Developer identifier |
+| source | String | Activity source |
+| event_type | String | Activity category |
+| event_timestamp | DateTime | Event occurrence time |
+| metadata | JSON | Additional event details |
+
+## Supported Sources
+
+1. GitHub
+2. Jira
+3. Slack
+4. ActivityWatch
+
+## Planned Analytical Metrics
+
+| Metric | Description |
+|---|---|
+| Total Events | Total recorded developer events |
+| Context Switches | Transitions between activity sources |
+| Activity Blocks | Groups of events within a defined time gap |
+| Average Session Duration | Average duration of detected sessions |
+| Longest Activity Block | Longest detected activity block |
+| Interruption Count | Number of detected interruptions |
