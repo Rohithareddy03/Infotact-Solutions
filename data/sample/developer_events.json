@@ -1,0 +1,43 @@
+﻿[
+    {
+        "event_id": "EVT001",
+        "developer_id": "DEV001",
+        "source": "github",
+        "event_type": "commit",
+        "event_timestamp": "2026-11-04T09:00:00+00:00",
+        "metadata": {
+            "repository": "cognistream",
+            "branch": "main"
+        }
+    },
+    {
+        "event_id": "EVT002",
+        "developer_id": "DEV001",
+        "source": "slack",
+        "event_type": "message",
+        "event_timestamp": "2026-11-04T09:15:00+00:00",
+        "metadata": {
+            "channel": "development"
+        }
+    },
+    {
+        "event_id": "EVT003",
+        "developer_id": "DEV001",
+        "source": "activitywatch",
+        "event_type": "coding_activity",
+        "event_timestamp": "2026-11-04T09:30:00+00:00",
+        "metadata": {
+            "application": "VS Code"
+        }
+    },
+    {
+        "event_id": "EVT004",
+        "developer_id": "DEV002",
+        "source": "jira",
+        "event_type": "issue_update",
+        "event_timestamp": "2026-11-04T10:00:00+00:00",
+        "metadata": {
+            "issue_id": "COG-101"
+        }
+    }
+]
