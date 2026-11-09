@@ -1,4 +1,3 @@
-
 """Load simulated developer activity events from a JSON file."""
 
 import json
@@ -13,20 +12,29 @@ def load_events(file_path: str | Path) -> list[dict]:
 
     Raises:
         FileNotFoundError: If the input file does not exist.
-        ValueError: If the JSON is invalid or has an unexpected structure.
+        ValueError: If the JSON is empty, invalid, or has an unexpected structure.
     """
+
     path = Path(file_path)
     logger.info("Starting event file ingestion: %s", path)
 
     try:
         with path.open("r", encoding="utf-8") as file:
-            events = json.load(file)
+            content = file.read()
+
+        if not content.strip():
+            raise ValueError(f"Event file is empty: {path}")
+
+        events = json.loads(content)
+
     except FileNotFoundError:
         logger.error("Event file not found: %s", path)
         raise
+
     except json.JSONDecodeError as exc:
         logger.error("Invalid JSON in %s: %s", path, exc)
         raise ValueError(f"Invalid JSON file: {path}") from exc
+
     except OSError:
         logger.exception("Could not read event file: %s", path)
         raise

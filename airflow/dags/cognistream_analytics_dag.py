@@ -1,4 +1,4 @@
-﻿"""Airflow DAG for the CogniStream analytics workflow."""
+"""Airflow DAG for the CogniStream analytics workflow."""
 
 import logging
 from datetime import datetime, timedelta
@@ -36,13 +36,20 @@ def ingest_developer_events(**context):
         "rejected_events": quality_report["rejected_events"],
         "duplicate_extra_rows": quality_report["duplicate_extra_rows"],
         "duplicate_event_ids": quality_report["duplicate_event_ids"],
+        "duplicate_events": quality_report["duplicate_events"],
     }
 
     ti = context["ti"]
     ti.xcom_push(key="accepted_events", value=accepted_events)
     ti.xcom_push(key="quality_summary", value=quality_summary)
 
-    logger.info("Accepted %s events.", len(accepted_events))
+    logger.info(
+        "Ingestion quality: total=%s accepted=%s rejected=%s duplicates=%s",
+        quality_summary["total_events"],
+        quality_summary["accepted_events"],
+        quality_summary["rejected_events"],
+        quality_summary["duplicate_extra_rows"],
+    )
     return quality_summary
 
 

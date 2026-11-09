@@ -1,7 +1,6 @@
 """Data quality checks for CogniStream ingestion events."""
 
 from datetime import datetime
-from collections import Counter
 
 
 REQUIRED_FIELDS = {
@@ -51,7 +50,7 @@ def validate_event_schema(event: dict) -> tuple[bool, list[str]]:
     if "source" in event:
         if not isinstance(event["source"], str):
             errors.append("source must be a string.")
-        elif event["source"].lower() not in ALLOWED_SOURCES:
+        elif event["source"].strip().lower() not in ALLOWED_SOURCES:
             errors.append("Unsupported event source.")
 
     if "event_type" in event:
@@ -69,7 +68,7 @@ def validate_event_schema(event: dict) -> tuple[bool, list[str]]:
 
 
 def validate_event_timestamp(event: dict) -> tuple[bool, str]:
-    """Check whether an event has a valid timezone-aware timestamp."""
+    """Validate a timezone-aware ISO timestamp."""
 
     value = event.get("event_timestamp")
 
@@ -77,9 +76,7 @@ def validate_event_timestamp(event: dict) -> tuple[bool, str]:
         return False, "event_timestamp must be an ISO timestamp string."
 
     try:
-        parsed = datetime.fromisoformat(
-            value.replace("Z", "+00:00")
-        )
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return False, "Invalid event_timestamp format."
 
@@ -90,17 +87,18 @@ def validate_event_timestamp(event: dict) -> tuple[bool, str]:
 
 
 def validate_event_batch(events: list[dict]) -> dict:
-    """Validate an entire batch and identify duplicate event IDs."""
+    """Validate events, normalize sources, and report duplicates."""
 
     if not isinstance(events, list):
         raise TypeError("events must be a list.")
 
     valid_events = []
     invalid_events = []
-    event_ids = []
+    duplicate_events = []
+    duplicate_ids = set()
+    seen_ids = set()
 
     for index, event in enumerate(events):
-
         schema_valid, schema_errors = validate_event_schema(event)
 
         if not schema_valid:
@@ -111,9 +109,7 @@ def validate_event_batch(events: list[dict]) -> dict:
             })
             continue
 
-        timestamp_valid, timestamp_message = (
-            validate_event_timestamp(event)
-        )
+        timestamp_valid, timestamp_message = validate_event_timestamp(event)
 
         if not timestamp_valid:
             invalid_events.append({
@@ -123,34 +119,30 @@ def validate_event_batch(events: list[dict]) -> dict:
             })
             continue
 
-        event_ids.append(event["event_id"])
-        valid_events.append(event)
+        event_id = event["event_id"]
 
-    counts = Counter(event_ids)
-    duplicate_ids = sorted(
-        event_id
-        for event_id, count in counts.items()
-        if count > 1
-    )
+        if event_id in seen_ids:
+            duplicate_ids.add(event_id)
+            duplicate_events.append({
+                "index": index,
+                "event_id": event_id,
+                "errors": ["Duplicate event_id."],
+            })
+            continue
 
-    duplicate_extra_rows = sum(
-        count - 1 for count in counts.values() if count > 1
-    )
+        normalized_event = event.copy()
+        normalized_event["source"] = event["source"].strip().lower()
 
-    unique_events = []
-    seen_ids = set()
-
-    for event in valid_events:
-        if event["event_id"] not in seen_ids:
-            unique_events.append(event)
-            seen_ids.add(event["event_id"])
+        seen_ids.add(event_id)
+        valid_events.append(normalized_event)
 
     return {
         "total_events": len(events),
-        "valid_events": unique_events,
+        "valid_events": valid_events,
         "invalid_events": invalid_events,
-        "duplicate_event_ids": duplicate_ids,
-        "duplicate_extra_rows": duplicate_extra_rows,
-        "accepted_events": len(unique_events),
-        "rejected_events": len(invalid_events),
+        "duplicate_event_ids": sorted(duplicate_ids),
+        "duplicate_events": duplicate_events,
+        "duplicate_extra_rows": len(duplicate_events),
+        "accepted_events": len(valid_events),
+        "rejected_events": len(invalid_events) + len(duplicate_events),
     }
