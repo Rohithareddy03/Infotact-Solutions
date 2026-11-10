@@ -1,6 +1,7 @@
-"""Data quality checks for CogniStream ingestion events."""
+﻿"""Data quality checks for CogniStream ingestion events."""
 
 from datetime import datetime
+from collections import Counter
 
 
 REQUIRED_FIELDS = {
@@ -86,8 +87,24 @@ def validate_event_timestamp(event: dict) -> tuple[bool, str]:
     return True, "Valid timestamp."
 
 
+def _get_source_bucket(event: dict) -> str:
+    """Return a normalized source name or unknown."""
+
+    if not isinstance(event, dict):
+        return "unknown"
+
+    source = event.get("source")
+
+    if not isinstance(source, str):
+        return "unknown"
+
+    normalized_source = source.strip().lower()
+
+    return normalized_source if normalized_source in ALLOWED_SOURCES else "unknown"
+
+
 def validate_event_batch(events: list[dict]) -> dict:
-    """Validate events, normalize sources, and report duplicates."""
+    """Validate events and report overall and source-wise quality."""
 
     if not isinstance(events, list):
         raise TypeError("events must be a list.")
@@ -98,7 +115,32 @@ def validate_event_batch(events: list[dict]) -> dict:
     duplicate_ids = set()
     seen_ids = set()
 
+    source_quality = {
+        source: {
+            "total_events": 0,
+            "accepted_events": 0,
+            "invalid_events": 0,
+            "duplicate_events": 0,
+            "rejected_events": 0,
+            "error_reasons": {},
+        }
+        for source in sorted(ALLOWED_SOURCES)
+    }
+
+    source_quality["unknown"] = {
+        "total_events": 0,
+        "accepted_events": 0,
+        "invalid_events": 0,
+        "duplicate_events": 0,
+        "rejected_events": 0,
+        "error_reasons": {},
+    }
+
     for index, event in enumerate(events):
+        source = _get_source_bucket(event)
+        source_stats = source_quality[source]
+        source_stats["total_events"] += 1
+
         schema_valid, schema_errors = validate_event_schema(event)
 
         if not schema_valid:
@@ -107,6 +149,12 @@ def validate_event_batch(events: list[dict]) -> dict:
                 "event": event,
                 "errors": schema_errors,
             })
+            source_stats["invalid_events"] += 1
+
+            for error in schema_errors:
+                source_stats["error_reasons"][error] = (
+                    source_stats["error_reasons"].get(error, 0) + 1
+                )
             continue
 
         timestamp_valid, timestamp_message = validate_event_timestamp(event)
@@ -117,6 +165,10 @@ def validate_event_batch(events: list[dict]) -> dict:
                 "event": event,
                 "errors": [timestamp_message],
             })
+            source_stats["invalid_events"] += 1
+            source_stats["error_reasons"][timestamp_message] = (
+                source_stats["error_reasons"].get(timestamp_message, 0) + 1
+            )
             continue
 
         event_id = event["event_id"]
@@ -128,6 +180,10 @@ def validate_event_batch(events: list[dict]) -> dict:
                 "event_id": event_id,
                 "errors": ["Duplicate event_id."],
             })
+            source_stats["duplicate_events"] += 1
+            source_stats["error_reasons"]["Duplicate event_id."] = (
+                source_stats["error_reasons"].get("Duplicate event_id.", 0) + 1
+            )
             continue
 
         normalized_event = event.copy()
@@ -135,6 +191,13 @@ def validate_event_batch(events: list[dict]) -> dict:
 
         seen_ids.add(event_id)
         valid_events.append(normalized_event)
+        source_stats["accepted_events"] += 1
+
+    for source_stats in source_quality.values():
+        source_stats["rejected_events"] = (
+            source_stats["invalid_events"]
+            + source_stats["duplicate_events"]
+        )
 
     return {
         "total_events": len(events),
@@ -145,4 +208,5 @@ def validate_event_batch(events: list[dict]) -> dict:
         "duplicate_extra_rows": len(duplicate_events),
         "accepted_events": len(valid_events),
         "rejected_events": len(invalid_events) + len(duplicate_events),
+        "source_quality": source_quality,
     }

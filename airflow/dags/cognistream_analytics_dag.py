@@ -1,4 +1,4 @@
-"""Airflow DAG for the CogniStream analytics workflow."""
+﻿"""Airflow DAG for the CogniStream analytics workflow."""
 
 import logging
 from datetime import datetime, timedelta
@@ -37,6 +37,7 @@ def ingest_developer_events(**context):
         "duplicate_extra_rows": quality_report["duplicate_extra_rows"],
         "duplicate_event_ids": quality_report["duplicate_event_ids"],
         "duplicate_events": quality_report["duplicate_events"],
+        "source_quality": quality_report["source_quality"],
     }
 
     ti = context["ti"]
