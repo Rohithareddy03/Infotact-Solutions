@@ -94,20 +94,20 @@ def run_monitored_pipeline(
     try:
         result = pipeline_function(*args, **kwargs)
 
+        if not isinstance(result, dict):
+            raise TypeError(
+                "Pipeline function must return a dictionary."
+            )
+
+        result_status = result.get("status", "success")
+
+        if result_status not in {"success", "no_data"}:
+            raise ValueError(
+                f"Pipeline returned an invalid status: {result_status}"
+            )
+
         report["metrics"] = _extract_result_metrics(result)
-
-        result_status = (
-            result.get("status")
-            if isinstance(result, dict)
-            else None
-        )
-
-        report["status"] = (
-            result_status
-            if result_status in {"success", "no_data"}
-            else "success"
-        )
-
+        report["status"] = result_status
         report["result"] = result
 
         return_value = result
