@@ -6,12 +6,15 @@ from unittest.mock import Mock
 from src.ingestion.end_to_end_pipeline import (
     run_end_to_end_pipeline,
 )
+from src.ingestion.file_loader import load_events
 
 
 class TestEndToEndPipeline(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+
         self.input_file = Path(self.temp_dir.name) / "events.json"
         self.input_file.write_text(
             '[{"event_id":"E001"}]',
@@ -32,23 +35,32 @@ class TestEndToEndPipeline(unittest.TestCase):
         }
 
         self.load_events = Mock(return_value=self.events)
+
         self.validate_event_batch = Mock(
             return_value=self.quality_summary
         )
+
         self.export_to_clickhouse = Mock(
             return_value={"status": "success", "inserted": 2}
         )
+
         self.monitor_pipeline = Mock(
             return_value={"monitoring_status": "completed"}
         )
-
-    def tearDown(self):
-        self.temp_dir.cleanup()
 
     def run_pipeline(self):
         return run_end_to_end_pipeline(
             input_file=str(self.input_file),
             load_events=self.load_events,
+            validate_event_batch=self.validate_event_batch,
+            export_analytics_to_clickhouse=self.export_to_clickhouse,
+            monitor_pipeline=self.monitor_pipeline,
+        )
+
+    def run_pipeline_with_real_loader(self):
+        return run_end_to_end_pipeline(
+            input_file=str(self.input_file),
+            load_events=load_events,
             validate_event_batch=self.validate_event_batch,
             export_analytics_to_clickhouse=self.export_to_clickhouse,
             monitor_pipeline=self.monitor_pipeline,
@@ -139,6 +151,29 @@ class TestEndToEndPipeline(unittest.TestCase):
         ):
             self.run_pipeline()
 
+        self.monitor_pipeline.assert_not_called()
+
+    def test_invalid_json_stops_pipeline(self):
+        self.input_file.write_text(
+            "{invalid json",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Invalid JSON"):
+            self.run_pipeline_with_real_loader()
+
+        self.validate_event_batch.assert_not_called()
+        self.export_to_clickhouse.assert_not_called()
+        self.monitor_pipeline.assert_not_called()
+
+    def test_empty_file_stops_pipeline(self):
+        self.input_file.write_text("", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "empty"):
+            self.run_pipeline_with_real_loader()
+
+        self.validate_event_batch.assert_not_called()
+        self.export_to_clickhouse.assert_not_called()
         self.monitor_pipeline.assert_not_called()
 
 
