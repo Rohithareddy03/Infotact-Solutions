@@ -1,9 +1,11 @@
+
 """Unit tests for the developer event ingestion pipeline."""
 
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.ingestion.pipeline import process_event_file
 
@@ -83,6 +85,74 @@ class TestIngestionPipeline(unittest.TestCase):
 
         with self.assertRaises(FileNotFoundError):
             process_event_file(missing_file)
+
+    @patch("src.ingestion.pipeline.time.sleep")
+    @patch("src.ingestion.pipeline.load_events")
+    def test_pipeline_recovers_after_temporary_failure(
+        self, mock_load, mock_sleep
+    ):
+        events = [self.valid_event()]
+        mock_load.side_effect = [
+            OSError("Temporary read error"),
+            events,
+        ]
+
+        valid, invalid = process_event_file(
+            self.file_path,
+            max_attempts=3,
+            retry_delay=1,
+        )
+
+        self.assertEqual(valid, events)
+        self.assertEqual(invalid, [])
+        self.assertEqual(mock_load.call_count, 2)
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("src.ingestion.pipeline.time.sleep")
+    @patch("src.ingestion.pipeline.load_events")
+    def test_pipeline_fails_after_all_retry_attempts(
+        self, mock_load, mock_sleep
+    ):
+        mock_load.side_effect = OSError("File access failed")
+
+        with self.assertRaises(OSError):
+            process_event_file(
+                self.file_path,
+                max_attempts=3,
+                retry_delay=1,
+            )
+
+        self.assertEqual(mock_load.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("src.ingestion.pipeline.load_events")
+    def test_missing_file_is_not_retried(self, mock_load):
+        mock_load.side_effect = FileNotFoundError("Missing file")
+
+        with self.assertRaises(FileNotFoundError):
+            process_event_file(
+                self.file_path,
+                max_attempts=3,
+                retry_delay=0,
+            )
+
+        self.assertEqual(mock_load.call_count, 1)
+
+    def test_invalid_max_attempts_is_rejected(self):
+        with self.assertRaises(ValueError):
+            process_event_file(
+                self.file_path,
+                max_attempts=0,
+                retry_delay=0,
+            )
+
+    def test_negative_retry_delay_is_rejected(self):
+        with self.assertRaises(ValueError):
+            process_event_file(
+                self.file_path,
+                max_attempts=3,
+                retry_delay=-1,
+            )
 
 
 if __name__ == "__main__":
