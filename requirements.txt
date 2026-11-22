@@ -1,0 +1,14 @@
+polars
+python-dotenv
+pytest
+
+polars
+python-dotenv
+pytest
+
+
+fastapi
+uvicorn
+pydantic
+pytest
+httpx
