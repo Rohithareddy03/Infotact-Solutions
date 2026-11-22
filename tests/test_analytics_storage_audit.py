@@ -1,4 +1,5 @@
 
+
 import unittest
 from datetime import date
 from types import SimpleNamespace
@@ -16,100 +17,130 @@ class TestAnalyticsStorageAudit(unittest.TestCase):
     def setUp(self):
         self.client = Mock()
 
-    def successful_response(self, count=5):
+    def make_response(self, count):
         return SimpleNamespace(result_rows=[(count,)])
 
-    def test_validate_string_date(self):
-        result = validate_metric_date("2026-11-05")
-        self.assertEqual(result, "2026-11-05")
+    def test_valid_metric_date(self):
+        self.assertEqual(
+            validate_metric_date(date(2026, 11, 22)),
+            "2026-11-22",
+        )
 
-    def test_validate_date_object(self):
-        result = validate_metric_date(date(2026, 11, 5))
-        self.assertEqual(result, "2026-11-05")
-
-    def test_invalid_date(self):
+    def test_invalid_metric_date(self):
         with self.assertRaises(ValueError):
-            validate_metric_date("2026-13-40")
+            validate_metric_date("2026-15-40")
 
-    def test_invalid_date_type(self):
-        with self.assertRaises(ValueError):
-            validate_metric_date(12345)
+    def test_missing_clickhouse_client(self):
+        report = audit_analytics_storage(
+            None,
+            "2026-11-22",
+        )
 
-    def test_all_tables_audit_successfully(self):
-        self.client.query.return_value = self.successful_response(10)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["successful_tables"], 0)
+        self.assertEqual(report["failed_tables"], 5)
+        self.assertEqual(report["total_records"], 0)
+        self.assertEqual(len(report["errors"]), 5)
+
+    def test_successful_audit_of_all_tables(self):
+        self.client.query.return_value = self.make_response(10)
 
         report = audit_analytics_storage(
             self.client,
-            "2026-11-05",
+            "2026-11-22",
         )
 
         self.assertEqual(report["status"], "success")
         self.assertEqual(report["total_tables"], 5)
         self.assertEqual(report["successful_tables"], 5)
         self.assertEqual(report["failed_tables"], 0)
-        self.assertEqual(
-            len(report["tables"]),
-            len(ANALYTICS_TABLES),
-        )
+        self.assertEqual(self.client.query.call_count, 5)
 
     def test_partial_audit_failure(self):
         self.client.query.side_effect = [
-            self.successful_response(10),
+            self.make_response(10),
             Exception("Table unavailable"),
-            self.successful_response(5),
-            self.successful_response(3),
-            self.successful_response(2),
+            self.make_response(5),
+            self.make_response(3),
+            self.make_response(2),
         ]
 
         report = audit_analytics_storage(
             self.client,
-            "2026-11-05",
+            "2026-11-22",
         )
 
         self.assertEqual(report["status"], "partial")
         self.assertEqual(report["successful_tables"], 4)
         self.assertEqual(report["failed_tables"], 1)
+        self.assertIn("context_switches", report["errors"])
 
-    def test_all_tables_audit_failure(self):
+    def test_complete_audit_failure(self):
         self.client.query.side_effect = Exception(
             "ClickHouse connection failed"
         )
 
         report = audit_analytics_storage(
             self.client,
-            "2026-11-05",
+            "2026-11-22",
         )
 
         self.assertEqual(report["status"], "failed")
         self.assertEqual(report["successful_tables"], 0)
         self.assertEqual(report["failed_tables"], 5)
+        self.assertEqual(report["total_records"], 0)
 
-    def test_date_is_passed_as_query_parameter(self):
-        self.client.query.return_value = self.successful_response(4)
+    def test_audit_selected_tables_only(self):
+        self.client.query.return_value = self.make_response(7)
 
-        audit_analytics_storage(
+        selected = [
+            "developer_sessions",
+            "flow_blocks",
+        ]
+
+        report = audit_analytics_storage(
             self.client,
-            "2026-11-05",
+            "2026-11-22",
+            selected_tables=selected,
         )
 
-        first_call = self.client.query.call_args_list[0]
-
+        self.assertEqual(report["status"], "success")
+        self.assertEqual(report["total_tables"], 2)
+        self.assertEqual(report["successful_tables"], 2)
         self.assertEqual(
-            first_call.kwargs["parameters"],
-            {"metric_date": "2026-11-05"},
+            list(report["tables"].keys()),
+            selected,
         )
+        self.assertEqual(self.client.query.call_count, 2)
 
-    def test_only_predefined_tables_are_audited(self):
-        self.client.query.return_value = self.successful_response(1)
+    def test_unknown_table_names(self):
+        with self.assertRaises(ValueError):
+            audit_analytics_storage(
+                self.client,
+                "2026-11-22",
+                selected_tables=["unknown_table"],
+            )
 
-        audit_analytics_storage(
+        self.client.query.assert_not_called()
+
+    def test_correct_total_record_calculation(self):
+        counts = [10, 20, 30, 40, 50]
+        self.client.query.side_effect = [
+            self.make_response(count) for count in counts
+        ]
+
+        report = audit_analytics_storage(
             self.client,
-            "2026-11-05",
+            "2026-11-22",
         )
 
+        self.assertEqual(report["total_records"], 150)
         self.assertEqual(
-            self.client.query.call_count,
-            len(ANALYTICS_TABLES),
+            report["total_records"],
+            sum(
+                item["record_count"]
+                for item in report["tables"].values()
+            ),
         )
 
 

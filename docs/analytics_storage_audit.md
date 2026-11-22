@@ -1,5 +1,7 @@
 
 
+
+
 \# CogniStream Analytics Storage Audit
 
 
@@ -8,9 +10,15 @@
 
 
 
-Verify that daily analytics records are available in the
+The Analytics Storage Audit verifies whether daily analytics
 
-expected ClickHouse analytics tables.
+records are available in the expected ClickHouse tables.
+
+
+
+It helps identify incomplete analytics pipeline runs and
+
+records table-level query failures.
 
 
 
@@ -26,15 +34,23 @@ expected ClickHouse analytics tables.
 
 
 
-1\. developer\_sessions
+The audit supports five predefined analytics tables:
 
-2\. context\_switches
 
-3\. flow\_blocks
 
-4\. potential\_interruptions
+1\. `developer\_sessions` — filtered using `session\_start`.
 
-5\. developer\_daily\_metrics
+2\. `context\_switches` — filtered using `from\_timestamp`.
+
+3\. `flow\_blocks` — filtered using `block\_start`.
+
+4\. `potential\_interruptions` — filtered using `interruption\_timestamp`.
+
+5\. `developer\_daily\_metrics` — filtered using `metric\_date`.
+
+
+
+The date expressions must match the ClickHouse schema.
 
 
 
@@ -42,15 +58,19 @@ expected ClickHouse analytics tables.
 
 
 
-1\. Validate the requested metric date.
+1\. Validate and normalize the requested metric date.
 
-2\. Execute a parameterized record-count query for each table.
+2\. Select all five tables or a requested subset.
 
-3\. Capture the record count or the error.
+3\. Reject unknown table names.
 
-4\. Calculate successful and failed checks.
+4\. Execute a parameterized record-count query for each table.
 
-5\. Generate an overall audit status.
+5\. Capture each table's record count or error.
+
+6\. Calculate the total records from successful queries.
+
+7\. Generate the overall audit status.
 
 
 
@@ -58,19 +78,35 @@ expected ClickHouse analytics tables.
 
 
 
-\- success: All requested table checks succeeded.
+\- `success`: All selected table checks succeeded.
 
-\- partial: At least one check succeeded and at least one failed.
+\- `partial`: At least one check succeeded and at least one failed.
 
-\- failed: All requested table checks failed.
+\- `failed`: All selected table checks failed.
 
 
 
-A successful audit means the table queries completed.
+\## Error handling
 
-It does not guarantee that the record counts are complete
 
-or that every expected event was inserted.
+
+Each table is audited independently. A query failure is
+
+recorded in the report and does not stop checks on other tables.
+
+
+
+If the ClickHouse client is missing, the report marks all
+
+selected table checks as failed.
+
+
+
+Invalid dates and unknown table names raise `ValueError`.
+
+
+
+The total record count includes only successful table queries.
 
 
 
@@ -94,13 +130,31 @@ report = audit\_analytics\_storage(
 
 &#x20;   client,
 
-&#x20;   "2026-11-05",
+&#x20;   "2026-11-22",
 
 )
 
 
 
 print(report)
+
+
+
+\# Audit only selected tables.
+
+selected\_report = audit\_analytics\_storage(
+
+&#x20;   client,
+
+&#x20;   "2026-11-22",
+
+&#x20;   selected\_tables=\["developer\_sessions", "flow\_blocks"],
+
+)
+
+
+
+print(selected\_report)
 
 ```
 
@@ -110,7 +164,7 @@ print(report)
 
 
 
-Run:
+Run the unit tests:
 
 
 
@@ -122,9 +176,19 @@ python -m unittest discover -s tests -p "test\_analytics\_storage\_audit.py" -v
 
 
 
-The automated tests use a mocked ClickHouse client.
+The nine automated tests use a mocked ClickHouse client.
 
-Live database validation must be performed separately.
+They cover date validation, missing clients, successful and
+
+failed audits, selected tables, unknown table names, and
+
+total record calculation.
+
+
+
+A successful mocked test run does not replace live
+
+ClickHouse validation.
 
 
 

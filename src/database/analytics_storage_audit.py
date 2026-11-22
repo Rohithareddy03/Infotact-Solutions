@@ -1,11 +1,12 @@
 
+
 from datetime import date, datetime
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Only predefined table names and date expressions are used.
-# This prevents user-provided SQL identifiers.
+# These names and date expressions must match the existing
+# ClickHouse analytics schema.
 ANALYTICS_TABLES = {
     "developer_sessions": "toDate(session_start)",
     "context_switches": "toDate(from_timestamp)",
@@ -16,10 +17,10 @@ ANALYTICS_TABLES = {
 
 
 def validate_metric_date(metric_date):
-    """Validate and normalize a YYYY-MM-DD date."""
+    """Validate and normalize a date to YYYY-MM-DD."""
 
     if isinstance(metric_date, datetime):
-        raise ValueError("Datetime values are not accepted. Use YYYY-MM-DD.")
+        raise ValueError("Provide a date, not a datetime.")
 
     if isinstance(metric_date, date):
         return metric_date.isoformat()
@@ -38,27 +39,72 @@ def validate_metric_date(metric_date):
     return parsed_date.isoformat()
 
 
-def audit_analytics_storage(client, metric_date):
+def audit_analytics_storage(client, metric_date, selected_tables=None):
     """
-    Audit daily record counts across all analytics tables.
+    Audit daily record counts in selected ClickHouse analytics tables.
 
-    Each table is checked independently. A failure in one table
-    does not prevent the remaining tables from being checked.
+    Args:
+        client: Existing ClickHouse client.
+        metric_date: Date object or YYYY-MM-DD string.
+        selected_tables: Optional list/tuple of table names.
+                         Defaults to all five analytics tables.
 
-    Returns a JSON-serializable audit report.
+    Returns:
+        JSON-serializable dictionary containing table results,
+        total records, errors, and overall status.
+
+    Raises:
+        ValueError: If the date or selected table names are invalid.
     """
 
     normalized_date = validate_metric_date(metric_date)
 
+    if selected_tables is None:
+        tables_to_audit = list(ANALYTICS_TABLES)
+    else:
+        if not isinstance(selected_tables, (list, tuple)):
+            raise ValueError("selected_tables must be a list or tuple.")
+
+        if not selected_tables:
+            raise ValueError("Select at least one analytics table.")
+
+        unknown_tables = [
+            name for name in selected_tables
+            if name not in ANALYTICS_TABLES
+        ]
+
+        if unknown_tables:
+            raise ValueError(
+                f"Unknown analytics table(s): {', '.join(map(str, unknown_tables))}"
+            )
+
+        # Remove duplicates while preserving the requested order.
+        tables_to_audit = list(dict.fromkeys(selected_tables))
+
     table_results = {}
+    errors = {}
     successful_tables = 0
     failed_tables = 0
+    total_records = 0
 
-    for table_name, date_column in ANALYTICS_TABLES.items():
+    for table_name in tables_to_audit:
+
+        if client is None:
+            error_message = "ClickHouse client is not provided."
+            table_results[table_name] = {
+                "status": "failed",
+                "error": error_message,
+            }
+            errors[table_name] = error_message
+            failed_tables += 1
+            continue
+
+        date_expression = ANALYTICS_TABLES[table_name]
+
         query = (
-            f"SELECT count() AS record_count "
+            f"SELECT count() "
             f"FROM {table_name} "
-            f"WHERE {date_column} = {{metric_date:Date}}"
+            f"WHERE {date_expression} = {{metric_date:Date}}"
         )
 
         try:
@@ -67,7 +113,13 @@ def audit_analytics_storage(client, metric_date):
                 parameters={"metric_date": normalized_date},
             )
 
+            if not result.result_rows:
+                raise ValueError("ClickHouse returned no count result.")
+
             record_count = int(result.result_rows[0][0])
+
+            if record_count < 0:
+                raise ValueError("ClickHouse returned a negative record count.")
 
             table_results[table_name] = {
                 "status": "success",
@@ -75,27 +127,22 @@ def audit_analytics_storage(client, metric_date):
             }
 
             successful_tables += 1
-
-            logger.info(
-                "Storage audit successful for %s: %s records",
-                table_name,
-                record_count,
-            )
+            total_records += record_count
 
         except Exception as exc:
+            error_message = str(exc)
+
             table_results[table_name] = {
                 "status": "failed",
-                "error": str(exc),
+                "error": error_message,
             }
 
+            errors[table_name] = error_message
             failed_tables += 1
 
-            logger.exception(
-                "Storage audit failed for table %s",
-                table_name,
-            )
+            logger.exception("Storage audit failed for %s", table_name)
 
-    if successful_tables == len(ANALYTICS_TABLES):
+    if failed_tables == 0:
         overall_status = "success"
     elif successful_tables > 0:
         overall_status = "partial"
@@ -105,8 +152,10 @@ def audit_analytics_storage(client, metric_date):
     return {
         "metric_date": normalized_date,
         "status": overall_status,
-        "total_tables": len(ANALYTICS_TABLES),
+        "total_tables": len(tables_to_audit),
         "successful_tables": successful_tables,
         "failed_tables": failed_tables,
+        "total_records": total_records,
         "tables": table_results,
+        "errors": errors,
     }
