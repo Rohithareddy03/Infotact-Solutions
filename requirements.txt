@@ -1,14 +1,8 @@
-polars
-python-dotenv
-pytest
-
-polars
-python-dotenv
-pytest
-
-
 fastapi
 uvicorn
 pydantic
+python-dotenv
+clickhouse-connect
+polars
 pytest
 httpx
